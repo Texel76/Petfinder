@@ -1,1 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Red Mascotas - Registro y Acceso</title>
+    <!-- Importamos la librería oficial de Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; }
+        h2 { text-align: center; color: #333; }
+        input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        button:hover { background: #218838; }
+        .switch { text-align: center; margin-top: 15px; font-size: 14px; color: #007bff; cursor: pointer; }
+        .oculto { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <!-- FORMULARIO DE REGISTRO -->
+    <div id="seccionRegistro">
+        <h2>Crear Cuenta</h2>
+        <form id="formRegistro">
+            <input type="text" id="regUsuario" placeholder="Nombre de usuario" required>
+            <input type="email" id="regEmail" placeholder="Correo electrónico" required>
+            <input type="password" id="regPassword" placeholder="Contraseña" required>
+            <button type="submit">Registrarse</button>
+        </form>
+        <div class="switch" onclick="cambiarVista()">¿Ya tienes cuenta? Inicia sesión</div>
+    </div>
+
+    <!-- FORMULARIO DE INICIO DE SESIÓN (Acepta Correo o Usuario) -->
+    <div id="seccionLogin" class="oculto">
+        <h2>Iniciar Sesión</h2>
+        <form id="formLogin">
+            <input type="text" id="loginIdentificador" placeholder="Correo o Nombre de usuario" required>
+            <input type="password" id="loginPassword" placeholder="Contraseña" required>
+            <button type="submit">Entrar</button>
+        </form>
+        <div class="switch" onclick="cambiarVista()">¿No tienes cuenta? Regístrate</div>
+    </div>
+</div>
+
+<script>
+    // 1. CONFIGURA TUS CREDENCIALES DE SUPABASE AQUÍ
+    const SUPABASE_URL = 'https://eiutcisunhsgsmucaqsx.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_n4MzAlTwpufJBj2aLYzIbw_q74wGY9G';
+    
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Función visual para cambiar entre Registrarse e Iniciar Sesión
+    function cambiarVista() {
+        document.getElementById('seccionRegistro').classList.toggle('oculto');
+        document.getElementById('seccionLogin').classList.toggle('oculto');
+    }
+
+    // --- PROCESO DE REGISTRO ---
+    document.getElementById('formRegistro').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('regUsuario').value;
+        const email = document.getElementById('regEmail').value;
+        const password = document.getElementById('regPassword').value;
+
+        // 1. Registrar usuario en la autenticación de Supabase
+        const { data, error } = await supabaseClient.auth.signUp({
+            email: email,
+            password: password
+        });
+
+        if (error) {
+            alert('Error en el registro: ' + error.message);
+            return;
+        }
+
+        if (data && data.user) {
+            const userId = data.user.id;
+            
+            const { error: errorPerfil } = await supabaseClient
+                .from('perfiles')
+                .insert([{ id: userId, username: username, correo: email }]);
+
+            if (errorPerfil) {
+                alert('Error al guardar el perfil: ' + errorPerfil.message);
+            } else {
+                alert('¡Registro exitoso! Ya puedes iniciar sesión.');
+                cambiarVista();
+            }
+        } else {
+            alert('Registro realizado, por favor verifica tu correo si es requerido.');
+        }
+    });
+
+    document.getElementById('formLogin').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        let identificador = document.getElementById('loginIdentificador').value.trim();
+        const password = document.getElementById('loginPassword').value;
+
+        let emailParaLogin = identificador;
+
+        if (!identificador.includes('@')) {
+            const { data, error } = await supabaseClient
+                .from('perfiles')
+                .select('correo')
+                .eq('username', identificador)
+                .single();
+
+            if (error || !data) {
+                alert('El nombre de usuario no existe.');
+                return;
+            }
+            emailParaLogin = data.correo; // Obtenemos el correo real para iniciar sesión
+        }
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: emailParaLogin,
+            password: password
+        });
+
+        if (error) {
+            alert('Contraseña incorrecta o usuario/correo no válido.');
+        } else {
+            alert('¡Inicio de sesión exitoso! Bienvenido a la red social de mascotas.');
+        }
+    });
+</script>
+
+</body>
+</html>
 
