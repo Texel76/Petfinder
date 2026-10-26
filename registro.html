@@ -3,21 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Red Mascotas - Registro y Acceso</title>
-    
+    <title>PetFinder - Registro y Acceso</title>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
     <script src="conexion.js"></script>
 
     <style>
-        body { font-family: Arial, sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        body { font-family: Arial, sans-serif; background: #f4f4f9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
         .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; }
         h2 { text-align: center; color: #333; }
         input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         button { width: 100%; padding: 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
         button:hover { background: #218838; }
+        button:disabled { background: #9ca3af; cursor: not-allowed; }
         .switch { text-align: center; margin-top: 15px; font-size: 14px; color: #007bff; cursor: pointer; }
         .oculto { display: none; }
+        .mensaje { margin-top: 12px; padding: 10px; border-radius: 5px; font-size: 13px; display: none; }
+        .mensaje.error { display: block; background: #fee2e2; color: #991b1b; }
+        .mensaje.ok { display: block; background: #dcfce7; color: #166534; }
     </style>
 </head>
 <body>
@@ -26,10 +29,10 @@
     <div id="seccionRegistro">
         <h2>Crear Cuenta</h2>
         <form id="formRegistro">
-            <input type="text" id="regUsuario" placeholder="Nombre de usuario" required>
+            <input type="text" id="regUsuario" placeholder="Nombre de usuario" required minlength="3" maxlength="30" pattern="[A-Za-z0-9_.]+" title="Solo letras, números, guion bajo y punto">
             <input type="email" id="regEmail" placeholder="Correo electrónico" required>
-            <input type="password" id="regPassword" placeholder="Contraseña" required>
-            <button type="submit">Registrarse</button>
+            <input type="password" id="regPassword" placeholder="Contraseña (mínimo 6 caracteres)" required minlength="6">
+            <button type="submit" id="btnRegistro">Registrarse</button>
         </form>
         <div class="switch" onclick="cambiarVista()">¿Ya tienes cuenta? Inicia sesión</div>
     </div>
@@ -39,89 +42,109 @@
         <form id="formLogin">
             <input type="text" id="loginIdentificador" placeholder="Correo o Nombre de usuario" required>
             <input type="password" id="loginPassword" placeholder="Contraseña" required>
-            <button type="submit">Entrar</button>
+            <button type="submit" id="btnLogin">Entrar</button>
         </form>
         <div class="switch" onclick="cambiarVista()">¿No tienes cuenta? Regístrate</div>
     </div>
+
+    <div id="mensaje" class="mensaje"></div>
 </div>
 
 <script>
+    function mostrarMensaje(texto, tipo) {
+        const m = document.getElementById('mensaje');
+        m.textContent = texto;
+        m.className = 'mensaje ' + tipo;
+    }
+
     function cambiarVista() {
         document.getElementById('seccionRegistro').classList.toggle('oculto');
         document.getElementById('seccionLogin').classList.toggle('oculto');
+        document.getElementById('mensaje').className = 'mensaje';
     }
 
+    // Si ya hay sesión iniciada, ir directo a la página principal (se cambiara despues)
+    (async () => {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) window.location.href = 'index.html';
+    })();
+
+    // ---------- REGISTRO ----------
     document.getElementById('formRegistro').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const btn = document.getElementById('btnRegistro');
         const username = document.getElementById('regUsuario').value.trim();
         const email = document.getElementById('regEmail').value.trim();
         const password = document.getElementById('regPassword').value;
 
+        btn.disabled = true;
+        mostrarMensaje('Creando cuenta...', 'ok');
+
+        // El perfil (tabla "perfiles") lo crea un trigger en la base de datos
+        // usando el username enviado en "data". Ya no se inserta desde aquí.
         const { data, error } = await supabaseClient.auth.signUp({
             email: email,
             password: password,
-            options: {
-                data: { username: username }
-            }
+            options: { data: { username: username } }
         });
 
+        btn.disabled = false;
+
         if (error) {
-            alert('Error en el registro: ' + error.message);
+            const msg = /database error/i.test(error.message)
+                ? 'Ese nombre de usuario ya está en uso. Elige otro.'
+                : 'Error en el registro: ' + error.message;
+            mostrarMensaje(msg, 'error');
             return;
         }
 
-        if (data && data.user) {
-            const userId = data.user.id;
-            
-            const { error: errorPerfil } = await supabaseClient
-                .from('perfiles')
-                .insert([
-                    { 
-                        id: userId, 
-                        username: username, 
-                        correo: email 
-                    }
-                ]);
-
-            if (errorPerfil) {
-                alert('Error al guardar el perfil: ' + errorPerfil.message);
-            } else {
-                alert('¡Registro exitoso! Ya puedes iniciar sesión.');
-                cambiarVista();
-            }
+        if (data.session) {
+            // Confirmación por correo desactivada: ya está dentro
+            window.location.href = 'index.html';
+        } else {
+            mostrarMensaje('¡Registro exitoso! Revisa tu correo para confirmar la cuenta y luego inicia sesión.', 'ok');
+            cambiarVista();
+            mostrarMensaje('¡Registro exitoso! Revisa tu correo para confirmar la cuenta y luego inicia sesión.', 'ok');
         }
     });
 
+    // ---------- LOGIN ----------
     document.getElementById('formLogin').addEventListener('submit', async (e) => {
         e.preventDefault();
-        let identificador = document.getElementById('loginIdentificador').value.trim();
+        const btn = document.getElementById('btnLogin');
+        const identificador = document.getElementById('loginIdentificador').value.trim();
         const password = document.getElementById('loginPassword').value;
 
+        btn.disabled = true;
         let emailParaLogin = identificador;
 
+        // Si escribió un nombre de usuario, se busca su correo con una función segura (RPC)
         if (!identificador.includes('@')) {
-            const { data, error } = await supabaseClient
-                .from('perfiles')
-                .select('correo')
-                .eq('username', identificador)
-                .maybeSingle();
+            const { data: correo, error } = await supabaseClient
+                .rpc('correo_por_username', { p_username: identificador });
 
-            if (error || !data) {
-                alert('El nombre de usuario no existe.');
+            if (error || !correo) {
+                btn.disabled = false;
+                mostrarMensaje('El nombre de usuario no existe.', 'error');
                 return;
             }
-            emailParaLogin = data.correo;
+            emailParaLogin = correo;
         }
 
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
+        const { error } = await supabaseClient.auth.signInWithPassword({
             email: emailParaLogin,
             password: password
         });
 
+        btn.disabled = false;
+
         if (error) {
-            alert('Contraseña incorrecta o usuario/correo no válido.');
+            const msg = /not confirmed/i.test(error.message)
+                ? 'Debes confirmar tu correo antes de iniciar sesión.'
+                : 'Contraseña incorrecta o usuario/correo no válido.';
+            mostrarMensaje(msg, 'error');
         } else {
-            alert('¡Inicio de sesión exitoso! Bienvenido a la red social de mascotas.');
+            window.location.href = 'index.html';
         }
     });
 </script>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PetFinder - Red Social de Mascotas Perdidas & Avistadas</title>
+
+  <!-- Leaflet CSS (Mapa Interactivo) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Tipografía Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Estilos propios -->
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/extras.css">
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="brand">
+      <div class="logo-badge">📍🐾</div>
+      <div class="brand-text">
+        <h1>PetFinder</h1>
+        <span>Radar Social</span>
+      </div>
+    </div>
+
+    <!-- Buscador Geográfico / Radar -->
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="location-search" placeholder="Buscar ciudad, barrio o dirección y pulsa Enter...">
+      <button type="button" class="btn-locate" id="btn-locate" title="Usar mi ubicación GPS">🎯 Mi Radar</button>
+    </div>
+
+    <!-- Acciones de Usuario -->
+    <div class="nav-right">
+      <button class="btn-primary-post" onclick="togglePostModal()">
+        <span>➕</span> Publicar Avistamiento / Pérdida
+      </button>
+
+      <div class="user-pill" title="Tu perfil">
+        <div class="user-avatar-initial" id="user-initial">?</div>
+        <span class="online-indicator"></span>
+        <span class="user-name" id="user-name"></span>
+        <button class="btn-logout" onclick="logout()">Salir</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-container">
+
+    <!-- SIDEBAR SOCIAL (Feed) -->
+    <aside class="social-sidebar">
+
+      <!-- Métricas -->
+      <section class="radar-stats">
+        <div class="stat-box lost">
+          <span class="stat-num" id="stat-lost">0</span>
+          <span class="stat-text">Perdidos</span>
+        </div>
+        <div class="stat-box sighted">
+          <span class="stat-num" id="stat-sighted">0</span>
+          <span class="stat-text">Avistados (24 h)</span>
+        </div>
+      </section>
+
+      <!-- Filtros -->
+      <nav class="feed-filters">
+        <button class="filter-chip active" onclick="filterFeed('all', this)">Todos</button>
+        <button class="filter-chip lost" onclick="filterFeed('lost', this)">🚨 Perdidos</button>
+        <button class="filter-chip sighted" onclick="filterFeed('sighted', this)">👀 Avistamientos</button>
+        <button class="filter-chip dog" onclick="filterFeed('dog', this)">🐶 Perros</button>
+        <button class="filter-chip cat" onclick="filterFeed('cat', this)">🐱 Gatos</button>
+      </nav>
+
+      <!-- Feed (se llena desde Supabase con app.js) -->
+      <section class="posts-feed" id="posts-feed">
+        <div class="empty-state">Cargando publicaciones...</div>
+      </section>
+    </aside>
+
+    <!-- MAPA -->
+    <section class="map-container">
+      <div id="pet-map"></div>
+
+      <div class="map-legend">
+        <h4>Leyenda del Radar</h4>
+        <div class="legend-item"><span class="pin lost-pin">📍</span> Mascota Perdida</div>
+        <div class="legend-item"><span class="pin sighted-pin">📍</span> Avistamiento Reciente</div>
+        <div class="legend-item"><span class="pin user-pin">🔵</span> Tu Ubicación</div>
+      </div>
+
+      <div class="map-hint" id="map-hint">📍 Toca el mapa para marcar la ubicación <button type="button" onclick="cancelPickOnMap()">Cancelar</button></div>
+    </section>
+
+  </main>
+
+  <!-- MODAL PARA CREAR PUBLICACIÓN -->
+  <div class="modal-overlay" id="post-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Publicar en el Radar</h3>
+        <button type="button" class="close-btn" onclick="togglePostModal()">✕</button>
+      </div>
+
+      <form class="post-form" id="post-form" onsubmit="submitPost(event)">
+        <div class="form-group">
+          <label>Tipo de Reporte</label>
+          <div class="radio-group">
+            <label class="radio-card lost">
+              <input type="radio" name="postType" value="lost" checked>
+              <span>🚨 Perdí mi mascota</span>
+            </label>
+            <label class="radio-card sighted">
+              <input type="radio" name="postType" value="sighted">
+              <span>👀 Avisté una mascota</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="pet-species">Tipo de animal</label>
+          <select id="pet-species">
+            <option value="dog">🐶 Perro</option>
+            <option value="cat">🐱 Gato</option>
+            <option value="other">🐾 Otro</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="pet-title">Nombre o Descripción Corta</label>
+          <input type="text" id="pet-title" maxlength="120" placeholder="Ej. Toby (Pug) o Perrito café sin collar" required>
+        </div>
+
+        <div class="form-group">
+          <label for="pet-desc">Detalles / Historia</label>
+          <textarea id="pet-desc" rows="3" maxlength="1000" placeholder="Describe señas particulares, comportamiento o dónde fue visto..." required></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>Fotografía (JPG, PNG, WEBP o GIF · máx. 5 MB)</label>
+          <div class="upload-dropzone" id="dropzone">
+            <span class="upload-icon">📷</span>
+            <p id="dropzone-text">Haz clic o arrastra una foto de la mascota</p>
+            <input type="file" id="pet-photo" accept="image/jpeg,image/png,image/webp,image/gif" class="file-input">
+          </div>
+          <img id="photo-preview" class="photo-preview" alt="Vista previa">
+        </div>
+
+        <div class="form-group">
+          <label for="pet-place">Ubicación</label>
+          <input type="text" id="pet-place" maxlength="150" placeholder="Calle, esquina o punto de referencia" required>
+          <div class="loc-row">
+            <button type="button" class="btn-ghost" id="btn-use-gps">🎯 Usar mi ubicación</button>
+            <button type="button" class="btn-ghost" id="btn-pick-map">🗺️ Elegir en el mapa</button>
+          </div>
+          <small class="coords-label" id="coords-label">Aún no has marcado el punto en el mapa.</small>
+        </div>
+
+        <button type="submit" class="btn-submit-post" id="btn-submit-post">🚀 Publicar en el Radar</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="conexion.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
