@@ -1,4 +1,4 @@
-// app.js - lógica de PetFinder (feed, mapa, subida de imágenes, likes, comentarios)
+// app.js - lógica de PetFinder (feed, mapa, subida de imágenes optimizada con IA, likes, comentarios)
 
 const BUCKET = 'publicaciones';
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -356,7 +356,6 @@ async function deletePost(id) {
   if (!confirm('¿Borrar esta publicación? No se puede deshacer.')) return;
   const p = allPosts.find((x) => x.id === id);
 
-  // 1) borrar la fila  2) borrar la imagen del Storage
   const { error } = await supabaseClient.from('publicaciones').delete().eq('id', id);
   if (error) return toast('No se pudo borrar la publicación.', 'error');
 
@@ -438,7 +437,36 @@ fileInput.addEventListener('change', () => {
   if (!selectedFile) fileInput.value = '';
 });
 
-// ----------------------------------------------------------- publicar (subir)
+// Función auxiliar para comprimir la imagen en memoria exclusivamente para la IA (sin afectar la HD)
+function comprimirParaIA(archivo, maxAncho = 800) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(archivo);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let ancho = img.width;
+        let alto = img.height;
+
+        if (ancho > maxAncho) {
+          alto = Math.round((alto * maxAncho) / ancho);
+          ancho = maxAncho;
+        }
+
+        canvas.width = ancho;
+        canvas.height = alto;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, ancho, alto);
+
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+    };
+  });
+}
+
+// ----------------------------------------------------------- publicar (subir) CON FILTRO DE IA Y OPTIMIZACIÓN
 async function submitPost(e) {
   e.preventDefault();
 
@@ -447,20 +475,47 @@ async function submitPost(e) {
 
   const btn = document.getElementById('btn-submit-post');
   btn.disabled = true;
-  btn.textContent = 'Publicando...';
-
-  const ext = (selectedFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-  const path = `${currentUser.id}/${Date.now()}.${ext}`;
+  btn.textContent = '🤖 Analizando imagen con IA...';
 
   try {
-    // 1) Subir la imagen al bucket
+    // 0) PASO DE VALIDACIÓN: Generamos una versión ligera y rápida solo para la IA
+    const base64Liviano = await comprimirParaIA(selectedFile, 800);
+
+    const respuestaValidacion = await fetch(`${SUPABASE_URL}/functions/v1/validar-imagen`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({
+        imagenBase64: base64Liviano,
+        mimeType: 'image/jpeg'
+      })
+    });
+
+    const resultadoIA = await respuestaValidacion.json();
+
+    if (!resultadoIA.success) {
+      // ❌ La IA detectó rostros humanos o contenido +18
+      toast(`❌ Foto rechazada: ${resultadoIA.error}`, 'error');
+      btn.disabled = false;
+      btn.textContent = '🚀 Publicar en el Radar';
+      return; // Detenemos la publicación
+    }
+
+    // ✅ Si pasa la IA, SUBIMOS EL ARCHIVO ORIGINAL EN HD (selectedFile) A SUPABASE
+    btn.textContent = 'Publicando...';
+    const ext = (selectedFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+    const path = `${currentUser.id}/${Date.now()}.${ext}`;
+
+    // 1) Subir la imagen original en alta definición al bucket
     const { error: upErr } = await supabaseClient.storage
       .from(BUCKET).upload(path, selectedFile, { contentType: selectedFile.type, upsert: false });
     if (upErr) throw upErr;
 
     const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
 
-    // 2) Guardar la publicación
+    // 2) Guardar la publicación en la base de datos
     const { error: insErr } = await supabaseClient.from('publicaciones').insert({
       user_id: currentUser.id,
       tipo: document.querySelector('input[name="postType"]:checked').value,
@@ -474,7 +529,7 @@ async function submitPost(e) {
     });
 
     if (insErr) {
-      await supabaseClient.storage.from(BUCKET).remove([path]); // no dejar imágenes huérfanas
+      await supabaseClient.storage.from(BUCKET).remove([path]);
       throw insErr;
     }
 
