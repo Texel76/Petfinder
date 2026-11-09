@@ -166,6 +166,15 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  
+  <!-- Ventana flotante de carga en segundo plano -->
+  <div class="upload-progress-card" id="upload-progress-card" style="display: none;">
+    <div class="progress-spinner"></div>
+    <div class="progress-text">
+      <h5 id="progress-title">Analizando con IA...</h5>
+      <p id="progress-desc">Tu publicación se está procesando en segundo plano.</p>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="conexion.js"></script>

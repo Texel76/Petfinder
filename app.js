@@ -467,85 +467,105 @@ function comprimirParaIA(archivo, maxAncho = 800) {
 }
 
 // ----------------------------------------------------------- publicar (subir) CON FILTRO DE IA Y OPTIMIZACIÓN
+// ----------------------------------------------------------- publicar (subir) EN SEGUNDO PLANO
 async function submitPost(e) {
   e.preventDefault();
 
   if (!selectedFile) return toast('Agrega una fotografía de la mascota.', 'error');
   if (!pickedCoords) return toast('Marca la ubicación en el mapa o usa tu ubicación.', 'error');
 
-  const btn = document.getElementById('btn-submit-post');
-  btn.disabled = true;
-  btn.textContent = '🤖 Analizando imagen con IA...';
+  // Guardamos los datos actuales del formulario antes de cerrarlo
+  const fileToUpload = selectedFile;
+  const coordsToUse = { ...pickedCoords };
+  const postType = document.querySelector('input[name="postType"]:checked').value;
+  const petSpecies = document.getElementById('pet-species').value;
+  const petTitle = document.getElementById('pet-title').value.trim();
+  const petDesc = document.getElementById('pet-desc').value.trim();
+  const petPlace = document.getElementById('pet-place').value.trim();
 
-  try {
-    // 0) PASO DE VALIDACIÓN: Generamos una versión ligera y rápida solo para la IA
-    const base64Liviano = await comprimirParaIA(selectedFile, 800);
+  // 1. Cerramos el modal de inmediato y limpiamos el formulario para liberar al usuario
+  resetPostForm();
+  document.getElementById('post-modal').classList.remove('active');
 
-    const respuestaValidacion = await fetch(`${SUPABASE_URL}/functions/v1/validar-imagen`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({
-        imagenBase64: base64Liviano,
-        mimeType: 'image/jpeg'
-      })
-    });
+  // 2. Mostramos la ventanita flotante en la esquina inferior derecha
+  const progressCard = document.getElementById('upload-progress-card');
+  const progressTitle = document.getElementById('progress-title');
+  const progressDesc = document.getElementById('progress-desc');
+  progressCard.style.display = 'flex';
+  progressTitle.textContent = '🤖 Analizando imagen con IA...';
+  progressDesc.textContent = 'Verificando contenido en segundo plano.';
 
-    const resultadoIA = await respuestaValidacion.json();
+  // Ejecutamos todo el proceso en segundo plano de forma asíncrona
+  (async () => {
+    try {
+      // Paso A: Comprimir imagen para la IA
+      const base64Liviano = await comprimirParaIA(fileToUpload, 800);
 
-    if (!resultadoIA.success) {
-      // ❌ La IA detectó rostros humanos o contenido +18
-      toast(`❌ Foto rechazada: ${resultadoIA.error}`, 'error');
-      btn.disabled = false;
-      btn.textContent = '🚀 Publicar en el Radar';
-      return; // Detenemos la publicación
+      // Paso B: Validar con la Edge Function
+      const respuestaValidacion = await fetch(`${SUPABASE_URL}/functions/v1/validar-imagen`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          imagenBase64: base64Liviano,
+          mimeType: 'image/jpeg'
+        })
+      });
+
+      const resultadoIA = await respuestaValidacion.json();
+
+      if (!resultadoIA.success) {
+        progressCard.style.display = 'none';
+        toast(`❌ Publicación rechazada: ${resultadoIA.error}`, 'error');
+        return;
+      }
+
+      // Paso C: Actualizamos estado en la ventanita flotante
+      progressTitle.textContent = '🚀 Subiendo al Radar...';
+      progressDesc.textContent = 'Guardando tu reporte en alta definición.';
+
+      // Paso D: Subir la imagen original en HD a Supabase Storage
+      const ext = (fileToUpload.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `${currentUser.id}/${Date.now()}.${ext}`;
+
+      const { error: upErr } = await supabaseClient.storage
+        .from(BUCKET).upload(path, fileToUpload, { contentType: fileToUpload.type, upsert: false });
+      if (upErr) throw upErr;
+
+      const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
+
+      // Paso E: Guardar la publicación en la base de datos
+      const { error: insErr } = await supabaseClient.from('publicaciones').insert({
+        user_id: currentUser.id,
+        tipo: postType,
+        especie: petSpecies,
+        titulo: petTitle,
+        descripcion: petDesc,
+        ubicacion_texto: petPlace,
+        lat: coordsToUse.lat,
+        lng: coordsToUse.lng,
+        imagen_url: publicUrl,
+      });
+
+      if (insErr) {
+        await supabaseClient.storage.from(BUCKET).remove([path]);
+        throw insErr;
+      }
+
+      // Ocultar ventanita flotante y actualizar feed con éxito
+      progressCard.style.display = 'none';
+      await loadPosts();
+      focusOnMap(coordsToUse.lat, coordsToUse.lng);
+      toast('¡Publicación creada en el radar!');
+
+    } catch (err) {
+      console.error(err);
+      progressCard.style.display = 'none';
+      toast('No se pudo publicar: ' + (err.message || 'error desconocido'), 'error');
     }
-
-    // ✅ Si pasa la IA, SUBIMOS EL ARCHIVO ORIGINAL EN HD (selectedFile) A SUPABASE
-    btn.textContent = 'Publicando...';
-    const ext = (selectedFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-    const path = `${currentUser.id}/${Date.now()}.${ext}`;
-
-    // 1) Subir la imagen original en alta definición al bucket
-    const { error: upErr } = await supabaseClient.storage
-      .from(BUCKET).upload(path, selectedFile, { contentType: selectedFile.type, upsert: false });
-    if (upErr) throw upErr;
-
-    const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
-
-    // 2) Guardar la publicación en la base de datos
-    const { error: insErr } = await supabaseClient.from('publicaciones').insert({
-      user_id: currentUser.id,
-      tipo: document.querySelector('input[name="postType"]:checked').value,
-      especie: document.getElementById('pet-species').value,
-      titulo: document.getElementById('pet-title').value.trim(),
-      descripcion: document.getElementById('pet-desc').value.trim(),
-      ubicacion_texto: document.getElementById('pet-place').value.trim(),
-      lat: pickedCoords.lat,
-      lng: pickedCoords.lng,
-      imagen_url: publicUrl,
-    });
-
-    if (insErr) {
-      await supabaseClient.storage.from(BUCKET).remove([path]);
-      throw insErr;
-    }
-
-    const coords = { ...pickedCoords };
-    resetPostForm();
-    document.getElementById('post-modal').classList.remove('active');
-    await loadPosts();
-    focusOnMap(coords.lat, coords.lng);
-    toast('¡Publicación creada en el radar!');
-  } catch (err) {
-    console.error(err);
-    toast('No se pudo publicar: ' + (err.message || 'error desconocido'), 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🚀 Publicar en el Radar';
-  }
+  })();
 }
 
 init().catch((err) => {
