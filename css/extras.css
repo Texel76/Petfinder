@@ -2,7 +2,7 @@
 .user-pill { display: flex; align-items: center; gap: 8px; cursor: default; }
 .user-avatar-initial {
   width: 40px; height: 40px; border-radius: 50%;
-  background: var(--primary-red); color: var(--white);
+  background: var(--primary-green); color: var(--white);
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; border: 2px solid var(--gray-border);
 }
@@ -22,7 +22,7 @@
   font-weight: 800; font-size: 0.85rem;
 }
 .post-text { white-space: pre-wrap; word-break: break-word; }
-.action-btn.danger:hover { color: var(--primary-red); }
+.action-btn.danger:hover { color: var(--primary-green); }
 .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .comment-item.muted { color: var(--gray-text); background: transparent; padding-left: 0; }
 .comment-item { word-break: break-word; }
@@ -66,7 +66,7 @@
   transition: all 0.25s ease; max-width: 90vw; text-align: center;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
-.toast.error { background: var(--primary-red); }
+.toast.error { background: var(--primary-green); }
 
 @media (max-width: 880px) {
   .user-name { display: none; }
