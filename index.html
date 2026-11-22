@@ -166,6 +166,24 @@
   </div>
 
   <div class="toast" id="toast"></div>
+  
+  <!-- Ventana flotante de carga en segundo plano -->
+  <div id="status-card" style="display: none; position: fixed; right: 20px; bottom: 20px; z-index: 9999; background: #ffffff; color: #111827; border: 1px solid #e5e7eb; border-left: 5px solid #2563eb; border-radius: 12px; padding: 14px 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); max-width: 360px; align-items: flex-start; justify-content: space-between; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div id="status-spinner" style="width: 22px; height: 22px; border: 3px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.9s linear infinite; flex-shrink: 0;"></div>
+      <div>
+        <h5 id="status-title" style="margin: 0 0 4px 0; font-size: 14px; font-weight: 700;"></h5>
+        <p id="status-desc" style="margin: 0; font-size: 13px; color: #374151; word-break: break-word;"></p>
+      </div>
+    </div>
+    <button type="button" id="btn-close-status" aria-label="Cerrar tarjeta" onclick="closeStatusCard()" style="display: none; background: transparent; border: none; color: #6b7280; font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; font-weight: bold;">✕</button>
+  </div>
+
+  <style>
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="conexion.js"></script>

@@ -51,7 +51,51 @@ function toast(msg, type = 'ok') {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (t.className = 'toast'), 3500);
 }
+function setStatusAnalyzing() {
+  const card = document.getElementById('status-card');
+  const spinner = document.getElementById('status-spinner');
+  const titleEl = document.getElementById('status-title');
+  const descEl = document.getElementById('status-desc');
+  const closeBtn = document.getElementById('btn-close-status');
+  if (!card || !spinner || !titleEl || !descEl || !closeBtn) return;
 
+  card.style.borderLeftColor = '#2563eb';
+  spinner.style.display = 'block';
+  closeBtn.style.display = 'none';
+  titleEl.textContent = 'Tu imagen se está analizando';
+  descEl.textContent = 'Esto puede tardar un rato.';
+  card.style.display = 'flex';
+}
+
+function setStatusFinished(isApproved, reason = '') {
+  const card = document.getElementById('status-card');
+  const spinner = document.getElementById('status-spinner');
+  const titleEl = document.getElementById('status-title');
+  const descEl = document.getElementById('status-desc');
+  const closeBtn = document.getElementById('btn-close-status');
+  if (!card || !spinner || !titleEl || !descEl || !closeBtn) return;
+
+  spinner.style.display = 'none';
+  closeBtn.style.display = 'inline-block';
+
+  if (isApproved) {
+    card.style.borderLeftColor = '#16a34a';
+    titleEl.textContent = 'Tu imagen se ha subido con éxito';
+    descEl.textContent = 'Se aprobó y ya está visible en el radar.';
+  } else {
+    const motivoLimpio = (reason && String(reason).trim()) || 'no cumplir con las normas';
+    card.style.borderLeftColor = '#dc2626';
+    titleEl.textContent = `Tu imagen ha sido rechazada , razon: ${motivoLimpio}`;
+    descEl.textContent = 'Publicación cancelada. Puedes intentar con otra foto.';
+  }
+
+  card.style.display = 'flex';
+}
+
+function closeStatusCard() {
+  const card = document.getElementById('status-card');
+  if (card) card.style.display = 'none';
+}
 // ---------------------------------------------------------------------- mapa
 const initialCoords = [5.33573, -72.3939]; // Ubicacion de Yopal
 const map = L.map('pet-map', { zoomControl: false }).setView(initialCoords, 13);
@@ -438,7 +482,7 @@ fileInput.addEventListener('change', () => {
 });
 
 // Función auxiliar para comprimir la imagen en memoria exclusivamente para la IA (sin afectar la HD)
-function comprimirParaIA(archivo, maxAncho = 800) {
+function comprimirParaIA(archivo, maxAncho = 512) {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.readAsDataURL(archivo);
@@ -460,93 +504,107 @@ function comprimirParaIA(archivo, maxAncho = 800) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, ancho, alto);
 
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
       };
     };
   });
 }
 
 // ----------------------------------------------------------- publicar (subir) CON FILTRO DE IA Y OPTIMIZACIÓN
+// ----------------------------------------------------------- publicar (subir) EN SEGUNDO PLANO
 async function submitPost(e) {
   e.preventDefault();
 
   if (!selectedFile) return toast('Agrega una fotografía de la mascota.', 'error');
   if (!pickedCoords) return toast('Marca la ubicación en el mapa o usa tu ubicación.', 'error');
 
-  const btn = document.getElementById('btn-submit-post');
-  btn.disabled = true;
-  btn.textContent = '🤖 Analizando imagen con IA...';
+  // Guardamos los datos actuales del formulario antes de cerrarlo
+  const fileToUpload = selectedFile;
+  const coordsToUse = { ...pickedCoords };
+  const postType = document.querySelector('input[name="postType"]:checked').value;
+  const petSpecies = document.getElementById('pet-species').value;
+  const petTitle = document.getElementById('pet-title').value.trim();
+  const petDesc = document.getElementById('pet-desc').value.trim();
+  const petPlace = document.getElementById('pet-place').value.trim();
 
-  try {
-    // 0) PASO DE VALIDACIÓN: Generamos una versión ligera y rápida solo para la IA
-    const base64Liviano = await comprimirParaIA(selectedFile, 800);
+  // Cerramos el modal de inmediato y limpiamos el formulario para liberar al usuario
+  resetPostForm();
+  document.getElementById('post-modal').classList.remove('active');
 
-    const respuestaValidacion = await fetch(`${SUPABASE_URL}/functions/v1/validar-imagen`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({
-        imagenBase64: base64Liviano,
-        mimeType: 'image/jpeg'
-      })
-    });
+  // Inicia en modo análisis (sin botón de cerrar)
+  setStatusAnalyzing();
 
-    const resultadoIA = await respuestaValidacion.json();
+  // Ejecutamos todo el proceso en segundo plano de forma asíncrona
+  (async () => {
+    try {
+      // Paso A: Comprimir imagen para la IA
+      const base64Liviano = await comprimirParaIA(fileToUpload, 512);
 
-    if (!resultadoIA.success) {
-      // ❌ La IA detectó rostros humanos o contenido +18
-      toast(`❌ Foto rechazada: ${resultadoIA.error}`, 'error');
-      btn.disabled = false;
-      btn.textContent = '🚀 Publicar en el Radar';
-      return; // Detenemos la publicación
+      // Paso B: Validar con la Edge Function
+      const respuestaValidacion = await fetch(`${SUPABASE_URL}/functions/v1/validar-imagen`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({
+          imagenBase64: base64Liviano,
+          mimeType: 'image/jpeg'
+        })
+      });
+
+      if (!respuestaValidacion.ok) {
+        setStatusFinished(false, `error de conexión (${respuestaValidacion.status})`);
+        return;
+      }
+
+      const resultadoIA = await respuestaValidacion.json();
+
+      if (!resultadoIA.success) {
+        setStatusFinished(false, resultadoIA.error || 'no pasar la validación de contenido');
+        return;
+      }
+
+      // Paso C: Subir la imagen original en HD a Supabase Storage
+      const ext = (fileToUpload.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `${currentUser.id}/${Date.now()}.${ext}`;
+
+      const { error: upErr } = await supabaseClient.storage
+        .from(BUCKET).upload(path, fileToUpload, { contentType: fileToUpload.type, upsert: false });
+      if (upErr) throw upErr;
+
+      const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
+
+      // Paso D: Guardar la publicación en la base de datos
+      const { error: insErr } = await supabaseClient.from('publicaciones').insert({
+        user_id: currentUser.id,
+        tipo: postType,
+        especie: petSpecies,
+        titulo: petTitle,
+        descripcion: petDesc,
+        ubicacion_texto: petPlace,
+        lat: coordsToUse.lat,
+        lng: coordsToUse.lng,
+        imagen_url: publicUrl,
+      });
+
+      if (insErr) {
+        await supabaseClient.storage.from(BUCKET).remove([path]);
+        throw insErr;
+      }
+
+      // Actualizar feed, enfocar mapa y mostrar estado aprobado persistente
+      await loadPosts();
+      focusOnMap(coordsToUse.lat, coordsToUse.lng);
+      setStatusFinished(true);
+
+    } catch (err) {
+      console.error(err);
+      setStatusFinished(false, err?.message || 'un error inesperado al subir');
     }
-
-    // ✅ Si pasa la IA, SUBIMOS EL ARCHIVO ORIGINAL EN HD (selectedFile) A SUPABASE
-    btn.textContent = 'Publicando...';
-    const ext = (selectedFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-    const path = `${currentUser.id}/${Date.now()}.${ext}`;
-
-    // 1) Subir la imagen original en alta definición al bucket
-    const { error: upErr } = await supabaseClient.storage
-      .from(BUCKET).upload(path, selectedFile, { contentType: selectedFile.type, upsert: false });
-    if (upErr) throw upErr;
-
-    const { data: { publicUrl } } = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
-
-    // 2) Guardar la publicación en la base de datos
-    const { error: insErr } = await supabaseClient.from('publicaciones').insert({
-      user_id: currentUser.id,
-      tipo: document.querySelector('input[name="postType"]:checked').value,
-      especie: document.getElementById('pet-species').value,
-      titulo: document.getElementById('pet-title').value.trim(),
-      descripcion: document.getElementById('pet-desc').value.trim(),
-      ubicacion_texto: document.getElementById('pet-place').value.trim(),
-      lat: pickedCoords.lat,
-      lng: pickedCoords.lng,
-      imagen_url: publicUrl,
-    });
-
-    if (insErr) {
-      await supabaseClient.storage.from(BUCKET).remove([path]);
-      throw insErr;
-    }
-
-    const coords = { ...pickedCoords };
-    resetPostForm();
-    document.getElementById('post-modal').classList.remove('active');
-    await loadPosts();
-    focusOnMap(coords.lat, coords.lng);
-    toast('¡Publicación creada en el radar!');
-  } catch (err) {
-    console.error(err);
-    toast('No se pudo publicar: ' + (err.message || 'error desconocido'), 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🚀 Publicar en el Radar';
-  }
+  })();
 }
+
 
 init().catch((err) => {
   console.error(err);
