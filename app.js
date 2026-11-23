@@ -1,4 +1,4 @@
-// app.js - lógica de PetFinder (feed, mapa, subida de imágenes optimizada con IA, likes, comentarios)
+// app.js - lógica de Pet&Found (feed, mapa, subida de imágenes optimizada con IA, likes, comentarios)
 
 const BUCKET = 'publicaciones';
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -391,7 +391,7 @@ async function sendComment(id) {
 async function sharePost(id) {
   const url = `${location.origin}${location.pathname}#post-${id}`;
   try {
-    if (navigator.share) await navigator.share({ title: 'PetFinder', url });
+    if (navigator.share) await navigator.share({ title: 'Pet&Found', url });
     else { await navigator.clipboard.writeText(url); toast('Enlace copiado al portapapeles.'); }
   } catch { /* el usuario canceló */ }
 }

@@ -1,5 +1,5 @@
 -- =====================================================================
--- PetFinder - Esquema de Supabase
+-- Pet&Found - Esquema de Supabase
 -- Ejecutar completo en: Supabase > SQL Editor > New query > Run
 --
 -- Si ya habías creado la tabla "perfiles" (con columna "correo") y no tiene
